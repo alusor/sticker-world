@@ -11,15 +11,30 @@ class MongoStorage {
    * Conecta a MongoDB
    */
   async connect() {
-    if (this.db) return this.db;
+    if (this.db && this.collection) return this.db;
 
     try {
-      const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-      const dbName = process.env.MONGODB_DB || 'sticker-world';
+      // Validar variables de entorno
+      const uri = process.env.MONGODB_URI;
+      const dbName = process.env.MONGODB_DB;
 
+      if (!uri) {
+        throw new Error('MONGODB_URI environment variable is not set');
+      }
+      if (!dbName) {
+        throw new Error('MONGODB_DB environment variable is not set');
+      }
+
+      console.log('Connecting to MongoDB...');
+
+      // Opciones optimizadas para Vercel
       this.client = new MongoClient(uri, {
-        useUnifiedTopology: true,
-        useNewUrlParser: true,
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 5000, // 5 segundos timeout
+        socketTimeoutMS: 45000,
+        family: 4, // Usar IPv4
+        maxIdleTimeMS: 30000,
+        connectTimeoutMS: 10000
       });
 
       await this.client.connect();
@@ -27,16 +42,79 @@ class MongoStorage {
       this.collection = this.db.collection('sticker-sessions');
 
       // Crear índice TTL para auto-limpieza (documentos expiran después de 1 hora)
-      await this.collection.createIndex(
-        { "expiresAt": 1 },
-        { expireAfterSeconds: 0 }
-      );
+      try {
+        await this.collection.createIndex(
+          { "expiresAt": 1 },
+          { expireAfterSeconds: 0 }
+        );
+      } catch (indexError) {
+        console.warn('Could not create TTL index:', indexError.message);
+      }
 
-      console.log('Connected to MongoDB');
+      console.log('Successfully connected to MongoDB');
       return this.db;
     } catch (error) {
       console.error('MongoDB connection error:', error);
+      // Reset state on error
+      this.client = null;
+      this.db = null;
+      this.collection = null;
       throw error;
+    }
+  }
+
+  /**
+   * Verifica si la conexión está activa y funcional
+   */
+  async isConnected() {
+    try {
+      if (!this.client || !this.db || !this.collection) {
+        return false;
+      }
+      // Hacer un ping simple para verificar la conexión
+      await this.db.admin().ping();
+      return true;
+    } catch (error) {
+      console.warn('MongoDB connection check failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Conecta de forma segura con retry
+   */
+  async ensureConnection() {
+    if (await this.isConnected()) {
+      return this.db;
+    }
+
+    console.log('Connection lost or not established, reconnecting...');
+    return await this.connect();
+  }
+
+  /**
+   * Health check para diagnóstico
+   */
+  async healthCheck() {
+    try {
+      await this.ensureConnection();
+      const result = await this.db.admin().ping();
+      const count = await this.collection.countDocuments();
+
+      return {
+        success: true,
+        connected: true,
+        ping: result,
+        documentsCount: count,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        success: false,
+        connected: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
@@ -45,7 +123,7 @@ class MongoStorage {
    */
   async saveSession(sessionId, stickers, metadata) {
     try {
-      await this.connect();
+      await this.ensureConnection();
 
       const document = {
         sessionId,
@@ -83,7 +161,7 @@ class MongoStorage {
    */
   async saveStickerIndividual(sessionId, stickerIndex, sticker) {
     try {
-      await this.connect();
+      await this.ensureConnection();
 
       const updateResult = await this.collection.updateOne(
         { sessionId },
@@ -116,7 +194,7 @@ class MongoStorage {
    */
   async loadSession(sessionId) {
     try {
-      await this.connect();
+      await this.ensureConnection();
 
       const session = await this.collection.findOne({ sessionId });
 
@@ -150,7 +228,7 @@ class MongoStorage {
    */
   async updateSessionMetadata(sessionId, metadata) {
     try {
-      await this.connect();
+      await this.ensureConnection();
 
       const result = await this.collection.updateOne(
         { sessionId },
@@ -177,7 +255,7 @@ class MongoStorage {
    */
   async cleanupExpiredSessions() {
     try {
-      await this.connect();
+      await this.ensureConnection();
 
       const result = await this.collection.deleteMany({
         expiresAt: { $lt: new Date() }

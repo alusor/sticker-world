@@ -17,17 +17,68 @@ export default function GalleryPage() {
   const fetchRecentSessions = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/gallery/recent');
+      setError(null);
+
+      // Intentar cargar desde cache primero si está disponible
+      const cachedData = sessionStorage.getItem('gallery_cache');
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          const isExpired = Date.now() - parsed.timestamp > 60000; // 1 minuto
+          if (!isExpired) {
+            setSessions(parsed.sessions || []);
+            setLoading(false);
+            // Continuar con fetch en background para actualizar
+          }
+        } catch (cacheError) {
+          console.warn('Cache parse error:', cacheError);
+        }
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
+
+      const response = await fetch('/api/gallery/recent', {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error('Failed to fetch sessions');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
       setSessions(data.sessions || []);
+
+      // Guardar en cache
+      try {
+        sessionStorage.setItem('gallery_cache', JSON.stringify({
+          sessions: data.sessions || [],
+          timestamp: Date.now()
+        }));
+      } catch (cacheError) {
+        console.warn('Could not save to cache:', cacheError);
+      }
+
     } catch (error) {
       console.error('Error fetching sessions:', error);
-      setError(error.message);
+
+      let errorMessage = 'Error al cargar la galería';
+
+      if (error.name === 'AbortError') {
+        errorMessage = 'La solicitud tardó demasiado tiempo. Inténtalo de nuevo.';
+      } else if (error.message.includes('fetch')) {
+        errorMessage = 'No se pudo conectar al servidor. Verifica tu conexión.';
+      } else if (error.message.includes('Database')) {
+        errorMessage = 'Base de datos temporalmente no disponible. Inténtalo en unos minutos.';
+      }
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -78,15 +129,34 @@ export default function GalleryPage() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
             Error al cargar la galería
           </h2>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">{error}</p>
-          <Button onClick={fetchRecentSessions} variant="outline">
-            Intentar de nuevo
-          </Button>
+          <p className="text-gray-600 dark:text-gray-300 mb-6">{error}</p>
+
+          <div className="space-y-3">
+            <Button onClick={fetchRecentSessions} className="w-full">
+              Intentar de nuevo
+            </Button>
+            <Button
+              onClick={() => router.push('/create')}
+              variant="outline"
+              className="w-full"
+            >
+              Crear mis stickers
+            </Button>
+          </div>
+
+          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              <strong>Sugerencias:</strong><br/>
+              • Verifica tu conexión a internet<br/>
+              • La base de datos puede estar en mantenimiento<br/>
+              • Intenta recargar en unos minutos
+            </p>
+          </div>
         </div>
       </div>
     );

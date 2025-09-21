@@ -66,11 +66,11 @@ export default function GeneratePage() {
 
         const results = await response.json();
 
-        // Los stickers ya están guardados en disco temporal por el API
+        // Los stickers ya están guardados en MongoDB por el API
         // Solo almacenar metadata en localStorage para navegación
         const stickers = results.results?.stickers || [];
 
-        console.log(`Generated ${stickers.length} stickers, saved to temporary disk storage`);
+        console.log(`Generated ${stickers.length} stickers, saved to MongoDB`);
 
         // Almacenar metadata en localStorage
         localStorage.setItem(`sticker_metadata_${id}`, JSON.stringify({

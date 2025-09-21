@@ -28,7 +28,7 @@ export default function ResultPage() {
   useEffect(() => {
     if (!id) return;
 
-    const loadResults = () => {
+    const loadResults = async () => {
       try {
         // Verificar si llegamos aquí con un error en los query params
         if (router.query.error) {
@@ -37,38 +37,27 @@ export default function ResultPage() {
           return;
         }
 
-        // Intentar cargar desde almacenamiento temporal en disco
+        // Cargar desde MongoDB a través del API
         try {
-          console.log(`Loading stickers from temporary disk storage for session ${id}`);
+          console.log(`Loading stickers from MongoDB for session ${id}`);
 
-          const diskResponse = await fetch(`/api/stickers/${id}`);
-          if (diskResponse.ok) {
-            const diskResults = await diskResponse.json();
-            console.log('Successfully loaded results from temporary disk storage');
-            setResults(diskResults);
+          const response = await fetch(`/api/stickers/${id}`);
+          if (response.ok) {
+            const mongoResults = await response.json();
+            console.log('Successfully loaded results from MongoDB');
+            setResults(mongoResults);
             setLoading(false);
             return;
+          } else if (response.status === 404) {
+            console.log('Session not found in MongoDB');
+            setResults({ error: 'Sesión no encontrada. Por favor, genera los stickers de nuevo.' });
           } else {
-            console.log('No results found in temporary disk storage');
+            console.log('Error loading from MongoDB');
+            setResults({ error: 'Error al cargar los resultados.' });
           }
         } catch (error) {
-          console.error('Error loading from disk storage:', error);
-        }
-
-        // Último fallback: verificar metadata
-        const metadata = localStorage.getItem(`sticker_metadata_${id}`);
-        if (metadata) {
-          const parsedMetadata = JSON.parse(metadata);
-          if (parsedMetadata.hasResults) {
-            // Los resultados deberían existir pero no los encontramos
-            setResults({ error: 'Los resultados se perdieron. Por favor, genera los stickers de nuevo.' });
-          } else {
-            setResults({ error: 'No se encontraron resultados para esta sesión' });
-          }
-        } else {
-          // No hay metadata, redirigir a create
-          router.push('/create');
-          return;
+          console.error('Error loading from MongoDB:', error);
+          setResults({ error: 'Error de conexión. Por favor, intenta de nuevo.' });
         }
       } catch (error) {
         console.error('Error loading results:', error);
@@ -79,28 +68,16 @@ export default function ResultPage() {
     };
 
     loadResults();
-
-    // Cleanup: los archivos temporales se limpian automáticamente por el servidor
-    return () => {
-      // No cleanup necesario - los archivos en disco se limpian automáticamente
-    };
   }, [id, router]);
 
   const styleInfo = getStyleDisplay(style);
 
   const handleDownload = (sticker) => {
-    if (!sticker.filePath && !sticker.data) return;
+    if (!sticker.data) return;
 
     const link = document.createElement('a');
-
-    if (sticker.filePath) {
-      // Descargar desde archivo temporal
-      link.href = sticker.filePath;
-    } else {
-      // Fallback a base64
-      link.href = `data:${sticker.mimeType || 'image/png'};base64,${sticker.data}`;
-    }
-
+    // Usar base64 directamente desde MongoDB
+    link.href = `data:${sticker.mimeType || 'image/png'};base64,${sticker.data}`;
     link.download = `${sticker.name.replace(/\s+/g, '_')}_${sticker.emoji}.png`;
     document.body.appendChild(link);
     link.click();
@@ -110,7 +87,7 @@ export default function ResultPage() {
   const handleDownloadAll = () => {
     if (!results?.results?.stickers) return;
 
-    const downloadableStickers = results.results.stickers.filter(s => (s.filePath || s.data) && !s.error);
+    const downloadableStickers = results.results.stickers.filter(s => s.data && !s.error);
     downloadableStickers.forEach((sticker, index) => {
       setTimeout(() => handleDownload(sticker), index * 500);
     });

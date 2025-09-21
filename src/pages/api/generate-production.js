@@ -1,5 +1,5 @@
 import GeminiProductionGenerator from '@/lib/geminiProductionGenerator';
-import TempStorage from '@/lib/tempStorage';
+import { getMongoStorage } from '@/lib/mongoStorage';
 
 export const config = {
   api: {
@@ -83,52 +83,49 @@ export default async function handler(req, res) {
     // Generar stickers optimizados para WhatsApp
     const results = await generator.generateWhatsAppStickers(base64Image, style, onProgress);
 
-    // Crear instancia de almacenamiento temporal
-    const tempStorage = new TempStorage();
+    // Obtener instancia de MongoDB
+    const mongoStorage = getMongoStorage();
 
-    // Validar y guardar stickers en disco temporal
+    // Validar stickers
     const processedStickers = results.stickers.map((sticker, index) => {
       if (sticker.data && !sticker.error) {
         // Validar sticker
         const validation = generator.validateWhatsAppSticker(sticker.data);
 
-        // Guardar en disco temporal
-        const saveResult = tempStorage.saveStickerToDisk(sessionId, index, sticker.data, sticker);
-
-        if (saveResult.success) {
-          return {
-            ...sticker,
-            data: null, // Remover base64 del response
-            filePath: saveResult.filePath,
-            whatsappValidation: validation,
-            isValid: validation.valid,
-            savedToDisk: true
-          };
-        } else {
-          return {
-            ...sticker,
-            whatsappValidation: validation,
-            isValid: validation.valid,
-            savedToDisk: false,
-            diskError: saveResult.error
-          };
-        }
+        return {
+          ...sticker,
+          // Mantener data en base64 para MongoDB
+          whatsappValidation: validation,
+          isValid: validation.valid,
+          index: index
+        };
       }
-      return sticker;
+      return { ...sticker, index: index };
     });
 
-    results.stickers = processedStickers;
-
-    // Guardar información de la sesión
-    tempStorage.saveSessionInfo(sessionId, {
+    // Guardar sesión completa en MongoDB
+    const saveResult = await mongoStorage.saveSession(
       sessionId,
-      style,
-      totalStickers: results.stickers.length,
-      timestamp: Date.now()
-    });
+      processedStickers,
+      {
+        style,
+        timestamp: Date.now()
+      }
+    );
 
-    // Limpiar archivos antiguos (limpieza automática)
-    tempStorage.cleanupOldFiles();
+    if (!saveResult.success) {
+      console.error('Failed to save to MongoDB:', saveResult.error);
+      // Continuar aunque falle el guardado
+    }
+
+    // Para el response, remover base64 grandes (opcional para reducir tamaño)
+    const responseStickers = processedStickers.map(sticker => ({
+      ...sticker,
+      data: sticker.data && sticker.data.length > 100000 ? null : sticker.data,
+      hasLargeData: sticker.data && sticker.data.length > 100000
+    }));
+
+    results.stickers = responseStickers;
 
     console.log(`Production generation completed: ${results.metrics.successful}/${results.stickers.length} successful for session ${sessionId}`);
 

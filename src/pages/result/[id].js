@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/router';
-import { Download, Share2, RotateCcw, Heart, Star, AlertCircle } from 'lucide-react';
+import { Download, Share2, RotateCcw, Heart, Star, AlertCircle, Images } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 
@@ -219,6 +219,14 @@ export default function ResultPage() {
             >
               <RotateCcw className="w-5 h-5 mr-2" />
               Crear más
+            </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => router.push('/gallery')}
+            >
+              <Images className="w-5 h-5 mr-2" />
+              Ver galería
             </Button>
           </div>
         </motion.div>

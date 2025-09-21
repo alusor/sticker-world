@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, Upload, Palette, Download, Heart } from 'lucide-react';
+import { ArrowRight, Upload, Palette, Download, Heart, Images } from 'lucide-react';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -51,9 +51,12 @@ export default function Home() {
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
-              <Button variant="outline" size="lg" className="w-full sm:w-auto">
-                Ver ejemplos
-              </Button>
+              <Link href="/gallery">
+                <Button variant="outline" size="lg" className="w-full sm:w-auto">
+                  <Images className="w-5 h-5 mr-2" />
+                  Ver galería
+                </Button>
+              </Link>
             </div>
           </motion.div>
         </div>
